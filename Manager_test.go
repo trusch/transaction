@@ -1,66 +1,42 @@
-package transaction
+package transaction_test
 
-import "testing"
+import (
+	. "github.com/trusch/transaction"
 
-func TestManager(t *testing.T) {
-	var num int64
-	mgr := NewManager(&num)
-	ready := make(chan bool, 32)
-	for i := 0; i < 100; i++ {
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+)
+
+var _ = Describe("Manager", func() {
+	var (
+		context uint32
+		manager *Manager
+	)
+	BeforeEach(func() {
+		context = 0
+		manager = NewManager(&context)
+	})
+	It("should guard a context from concurrent access", func(done Done) {
+		allDone := make(chan struct{}, 32)
+		for num := 0; num < 10; num++ {
+			go func() {
+				defer GinkgoRecover()
+				for i := 0; i < 100; i++ {
+					manager.Transaction(func(interface{}) (interface{}, error) {
+						context += 1
+						return nil, nil
+					})
+				}
+				allDone <- struct{}{}
+			}()
+		}
 		go func() {
-			mgr.Transaction(func(context interface{}) (interface{}, error) {
-				n := context.(*int64)
-				*n = *n + 1
-				ready <- true
-				return nil, nil
-			})
+			defer GinkgoRecover()
+			for i := 0; i < 10; i++ {
+				<-allDone
+			}
+			Expect(context).To(Equal(uint32(1000)))
+			done <- struct{}{}
 		}()
-	}
-	for i := 0; i < 100; i++ {
-		<-ready
-	}
-	if num != 100 {
-		t.Error("Expected 100, got ", num)
-	}
-}
-
-// import "sync"
-// func TestMutex(t *testing.T) { // Simple Mutex Example
-// 	var num int64
-// 	mutex := sync.Mutex{}
-// 	ready := make(chan bool, 32)
-// 	for i := 0; i < 100; i++ {
-// 		go func() {
-// 			mutex.Lock()
-// 			num++
-// 			mutex.Unlock()
-// 			ready <- true
-// 		}()
-// 	}
-// 	for i := 0; i < 100; i++ {
-// 		<-ready
-// 	}
-// 	if num != 100 {
-// 		t.Error("Expected 100, got ", num)
-// 	}
-// }
-
-// func TestNative(t *testing.T) { // WILL FAIL!!! only for reference of the problem
-// 	var num int64
-// 	mutex := sync.Mutex{}
-// 	ready := make(chan bool, 32)
-// 	for i := 0; i < 100; i++ {
-// 		go func() {
-// 			mutex.Lock()
-// 			num++
-// 			mutex.Unlock()
-// 			ready <- true
-// 		}()
-// 	}
-// 	for i := 0; i < 100; i++ {
-// 		<-ready
-// 	}
-// 	if num != 100 {
-// 		t.Error("Expected 100, got ", num)
-// 	}
-// }
+	}, 0.5)
+})
